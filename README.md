@@ -99,40 +99,32 @@ This mirrors Redis AOF rewrite behavior.
 
 ## Command API
 
-### SET_CHECKPOINT
-
+# SET_CHECKPOINT
 ```
 SET_CHECKPOINT <pipeline> <value> [ttl_seconds]
 ```
-
 * Updates pipeline checkpoint
 * Optional TTL
 * Logged durably before memory update
 
-### GET_CHECKPOINT
-
+# GET_CHECKPOINT
 ```
 GET_CHECKPOINT <pipeline>
 ```
-
 * Returns checkpoint value
 * Returns `NULL` if missing or expired
 
-### COMPACT
-
+# COMPACT
 ```
 COMPACT
 ```
-
 * Rewrites AOF from current state
 * Removes expired / obsolete entries
 
 ---
 
 ## Pipeline Demo
-
-### Components
-
+Components
 ```
 pipeline_demo/
 ├── producer.py      # Simulates upstream data source
@@ -140,7 +132,6 @@ pipeline_demo/
 ├── state_client.py  # Client for state store
 └── orders.log       # Append‑only data log
 ```
-
 ---
 
 ### Producer (`producer.py`)
@@ -173,7 +164,7 @@ This demonstrates **correct batch semantics**.
 
 ---
 
-### Failure Semantics (Important)
+## Failure Semantics 
 
 | Scenario            | Behavior               |
 | ------------------- | ---------------------- |
@@ -185,8 +176,6 @@ This demonstrates **correct batch semantics**.
 Correctness is prioritized over convenience.
 
 ---
-
-## Why This Is Not a Toy Project
 
 This project demonstrates real systems concepts:
 
@@ -264,5 +253,5 @@ python producer.py
 python pipeline.py
 ```
 
----
+
 
