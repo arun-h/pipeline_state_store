@@ -17,17 +17,7 @@ The goal is **not** to reimplement Redis or Kafka, but to demonstrate **first‑
 ---
 
 ## High‑Level Architecture
-
-```
-+-------------------+        TCP        +----------------------+
-|  Pipeline Job     |  <----------->   |  State Store Server  |
-|  (pipeline.py)    |                  |  (server.py)         |
-+-------------------+                  +----------+-----------+
-                                                   |
-                                                   | WAL (AOF)
-                                                   v
-                                           checkpoint.aof
-```
+![Pipeline State Store Architecture](assets/architecture.png)
 
 ### Core Idea
 
