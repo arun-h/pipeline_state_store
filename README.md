@@ -19,10 +19,40 @@ The goal is **not** to reimplement Redis or Kafka, but to demonstrate **first‑
 ## High‑Level Architecture
 ![Pipeline State Store Architecture](assets/architecture.png)
 
+### Why Correctness Matters: Checkpoint Atomicity
+
+The most important guarantee of this system is:
+A checkpoint is advanced only after a batch finishes successfully.
+
+This prevents silent data loss.
+
+Crash Scenario A — Crash Before Commit (Safe Reprocessing)
+Producer → orders.log (1000 records)
+Pipeline → reads checkpoint = 500
+Pipeline → processes records 501–800
+❌ Crash before commit
+
+State Store:
+- Checkpoint remains at 500
+- Safe to rerun pipeline
+
+Result: records are reprocessed safely.
+
+Crash Scenario B — Crash After Commit (No Reprocessing)
+Producer → orders.log (1000 records)
+Pipeline → reads checkpoint = 500
+Pipeline → processes records 501–1000
+Pipeline → commits checkpoint = 1000
+❌ Crash after commit
+
+State Store:
+- Checkpoint is now 1000
+- No reprocessing on restart
+
+This mirrors how production batch systems guarantee correctness.
 ### Core Idea
 
 Pipelines do **not** store checkpoints locally. Instead, they:
-
 1. Read the last committed checkpoint from the state service
 2. Process new data incrementally
 3. Commit a new checkpoint **only after successful completion**
@@ -52,7 +82,6 @@ A single‑threaded, event‑driven TCP server that:
 #### 2. Write‑Ahead Log (`aof.py`)
 
 Every state mutation is logged **before** updating memory.
-
 Example log:
 ```
 SET_CHECKPOINT orders_pipeline 1767420000
@@ -62,7 +91,6 @@ SET_CHECKPOINT payments_pipeline 1767420100
 **Why WAL?**
 * Crash safety
 * Deterministic recovery
-* Replayable source of truth
 
 On startup, the server **replays the log** to rebuild memory state.
 
@@ -74,20 +102,31 @@ Each checkpoint may optionally have a TTL.
 * TTL stored as **absolute expiry timestamp**
 * Lazy expiration on read
 * Expired entries are deleted automatically
+  
+Why lazy expiration?
+* No background threads
+* No concurrency complexity
+* Deterministic behavior
 
-This prevents stale pipeline metadata from living forever.
+Expired entries are removed when accessed.
 
 ---
 
 #### 4. AOF Compaction
-To prevent unbounded log growth and replay pollution:
+Without compaction, the AOF grows indefinitely and replay can reintroduce obsolete commands:
+##### Compaction Algorithm
+1.Snapshot current in-memory state (expired checkpoints excluded)
+2.Write a new AOF to a temporary file
+3.Flush and close the temporary file
+4.Atomically rename the temp file over the old AOF
 
-* The server supports a `COMPACT` command
-* Current valid state is snapshotted
-* A new AOF is rewritten atomically
-* Expired and obsolete commands are dropped
+Because the server is single-threaded, no concurrent writes occur during compaction.
 
-This mirrors Redis AOF rewrite behavior.
+Crash Safety During Compaction
+* Crash before rename → old AOF remains intact
+* Crash after rename → new AOF is already complete
+
+Compaction is therefore crash-safe.
 
 ---
 
@@ -116,7 +155,16 @@ COMPACT
 * Removes expired / obsolete entries
 
 ---
+##### Wire Protocol
 
+The server uses a simple newline-delimited text protocol over TCP.
+Example:
+Client → SET_CHECKPOINT orders_pipeline 1000 3600\n
+Server → OK\n
+
+Client → GET_CHECKPOINT orders_pipeline\n
+Server → 1000\n
+---
 ### Pipeline Demo
 Components
 ```
@@ -133,7 +181,6 @@ pipeline_demo/
 Simulates incoming data by appending order records to `orders.log`.
 
 Properties:
-
 * Append‑only
 * Monotonic timestamps (`updated_at`)
 * Represents DB / Kafka / CDC output
